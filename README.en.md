@@ -7,8 +7,8 @@ Self-hosted status dashboards for AI coding agents. Each dashboard shows a live 
 | Project | Monitors | Backend | Client integration |
 |---|---|---|---|
 | [`claudestate/`](claudestate) | Claude Code | Node.js + Express (SSE) | Claude Code's native hook system |
-| [`hermesstate/`](hermesstate) | Hermes (a desktop AI agent) | Node.js + Express (SSE) | PowerShell scripts polling the process + tailing its log |
-| `codexstate/` (coming soon) | Codex-style agents | Plain PHP + local file storage | Integrated by the deployer |
+| [`hermesstate/`](hermesstate) | Hermes | Node.js + Express (SSE) | PowerShell scripts polling the process + tailing its log |
+| `codexstate/` (coming soon) | Codex | Plain PHP + local file storage | Integrated by the deployer |
 
 CodexState has already been built internally but is being held back from this release; it's planned to be added in a future update.
 
