@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes State</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { color-scheme: light; font-family: system-ui, "Microsoft YaHei", "PingFang SC", sans-serif; background: #f4f6f9; color: #172033; }
+    body { background: #f4f6f9; color: #172033; min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #fff; border-bottom: 1px solid #d7deea;
+      padding: 0 32px; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 1px 4px rgba(20,32,52,.06);
+    }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #172033; }
+    .logo-icon { width: 28px; height: 28px; background: #176b43; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+
+    .dl-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 12px; background:#176b43; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; transition:background .15s; }
+    .dl-btn:hover { background:#1a8552; }
+    .dl-btn svg { flex-shrink:0; }
+    .conn-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #56637a;
+      background: #f4f6f9; border: 1px solid #d7deea;
+      border-radius: 20px; padding: 4px 10px;
+    }
+    .conn-dot { width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; }
+    .conn-dot.live { background: #16a34a; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    main { flex: 1; padding: 32px; max-width: 720px; margin: 0 auto; width: 100%; }
+
+    /* ── Traffic light ── */
+    .light-section {
+      background: #fff; border: 1px solid #d7deea; border-radius: 8px;
+      padding: 36px 28px; display: flex; flex-direction: column; align-items: center;
+      margin-bottom: 20px; box-shadow: 0 1px 4px rgba(20,32,52,.05);
+    }
+    .traffic-light {
+      background: #1e2435; border: 2px solid #2d3550; border-radius: 60px;
+      padding: 20px 16px; display: flex; flex-direction: column; gap: 18px;
+      margin-bottom: 22px; box-shadow: 0 4px 20px rgba(0,0,0,.18);
+    }
+    .light-dot {
+      width: 76px; height: 76px; border-radius: 50%;
+      background: #2d3148; border: 2px solid #3d4468;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .light-dot.red.active    { background: #ef4444; box-shadow: 0 0 28px 8px rgba(239,68,68,.4), 0 0 56px rgba(239,68,68,.2); }
+    .light-dot.yellow.active { background: #f59e0b; box-shadow: 0 0 28px 8px rgba(245,158,11,.4), 0 0 56px rgba(245,158,11,.2); }
+    .light-dot.green.active  { background: #22c55e; box-shadow: 0 0 28px 8px rgba(34,197,94,.4),  0 0 56px rgba(34,197,94,.2); }
+
+    .status-label { font-size: 22px; font-weight: 700; text-align: center; }
+    .status-label.green  { color: #16a34a; }
+    .status-label.yellow { color: #d97706; }
+    .status-label.red    { color: #dc2626; }
+    .status-sub { font-size: 13px; color: #56637a; margin-top: 6px; text-align: center; }
+
+    /* ── Permission panel ── */
+    .permission-panel {
+      background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+      padding: 22px; margin-bottom: 20px; display: none;
+      box-shadow: 0 1px 4px rgba(20,32,52,.05);
+    }
+    .permission-panel.show { display: block; }
+    .perm-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .perm-title { font-size: 16px; font-weight: 700; color: #dc2626; }
+    .perm-tool {
+      background: #f4f6f9; border: 1px solid #d7deea; border-radius: 6px;
+      padding: 10px 14px; font-size: 13px; margin-bottom: 12px;
+    }
+    .perm-tool strong { color: #172033; display: block; margin-bottom: 4px; }
+    .perm-tool pre {
+      color: #56637a; font-size: 12px; white-space: pre-wrap; word-break: break-all;
+      max-height: 180px; overflow-y: auto;
+    }
+    .perm-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .btn-approve {
+      flex: 1; padding: 11px; background: #16a34a; color: #fff;
+      border: none; border-radius: 6px; font: 700 15px/1 system-ui,sans-serif; cursor: pointer; transition: opacity .15s;
+    }
+    .btn-approve:hover { opacity: .88; }
+    .btn-deny {
+      flex: 1; padding: 11px; background: #dc2626; color: #fff;
+      border: none; border-radius: 6px; font: 700 15px/1 system-ui,sans-serif; cursor: pointer; transition: opacity .15s;
+    }
+    .btn-deny:hover { opacity: .88; }
+    .totp-field { margin-top: 14px; }
+    .totp-field label { display: block; font-size: 13px; font-weight: 700; color: #172033; margin-bottom: 6px; }
+    .totp-field input {
+      width: 100%; min-height: 46px; border: 1px solid #b9c5d8; border-radius: 6px;
+      padding: 10px 14px; font-size: 22px; letter-spacing: 6px; text-align: center;
+      font-family: ui-monospace, monospace; outline: none;
+    }
+    .totp-field input:focus { border-color: #16a34a; }
+
+    /* ── Activity log ── */
+    .activity-card {
+      background: #fff; border: 1px solid #d7deea; border-radius: 8px;
+      padding: 20px 22px; box-shadow: 0 1px 4px rgba(20,32,52,.05);
+    }
+    .card-title { font-size: 12px; font-weight: 700; color: #56637a; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 14px; }
+    .activity-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+    .activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: #f4f6f9; border-radius: 6px; font-size: 13px; }
+    .activity-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+    .activity-dot.tool       { background: #d97706; }
+    .activity-dot.stop       { background: #16a34a; }
+    .activity-dot.permission { background: #dc2626; }
+    .activity-dot.approved   { background: #16a34a; }
+    .activity-dot.denied     { background: #dc2626; }
+    .activity-dot.online     { background: #2563eb; }
+    .activity-dot.offline    { background: #9ca3af; }
+    .activity-msg { flex: 1; color: #172033; }
+    .activity-time { font-size: 11px; color: #9ca3af; flex-shrink: 0; }
+    .activity-empty { color: #9ca3af; font-size: 13px; text-align: center; padding: 20px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🤖</div>
+      Hermes State
+    </div>
+        <a class="dl-btn" href="/hermesstate/downloads/HermesStateInstaller.exe" download title="下载 Windows 监控器安装程序"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 安装监控器</a>
+    <div class="conn-badge">
+      <div class="conn-dot" id="conn-dot"></div>
+      <span id="conn-text">连接中…</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="light-section">
+      <div class="traffic-light">
+        <div class="light-dot red"    id="light-red"></div>
+        <div class="light-dot yellow" id="light-yellow"></div>
+        <div class="light-dot green"  id="light-green"></div>
+      </div>
+      <div class="status-label" id="status-label">—</div>
+      <div class="status-sub"   id="status-sub"></div>
+    </div>
+
+    <div class="permission-panel" id="perm-panel">
+      <div class="perm-header">
+        <span style="font-size:20px">🚨</span>
+        <span class="perm-title">需要审批权限</span>
+      </div>
+      <div class="perm-tool">
+        <strong id="perm-tool-name"></strong>
+        <pre id="perm-tool-input"></pre>
+      </div>
+      <div class="totp-field" id="totp-wrap" style="display:none;">
+        <label>批准需输入 TOTP 验证码</label>
+        <input type="text" id="totp-input" placeholder="000000" maxlength="6" inputmode="numeric">
+      </div>
+      <div class="perm-actions">
+        <button class="btn-approve" onclick="decide('approve')">✅ 批准</button>
+        <button class="btn-deny"    onclick="decide('deny')">❌ 拒绝</button>
+      </div>
+    </div>
+
+    <div class="activity-card">
+      <div class="card-title">活动记录</div>
+      <div class="activity-list" id="activity-list">
+        <div class="activity-empty">暂无活动</div>
+      </div>
+    </div>
+  </main>
+
+<script>
+let currentPermission = null;
+let es = null;
+
+// If /events keeps failing (this app's own trust cookie was never set —
+// e.g. access came in via the cross-app shared cookie only), bounce back
+// to this app's own verification screen after a few consecutive failures.
+let sseFailCount = 0;
+const SSE_FAIL_LIMIT = 3;
+
+function connect() {
+  if (es) es.close();
+  // relative URL — works whether served by PHP at /hermesstate/ or directly
+  es = new EventSource('events');
+  es.addEventListener('state', e => {
+    sseFailCount = 0;
+    applyState(JSON.parse(e.data));
+  });
+  es.onopen = () => {
+    sseFailCount = 0;
+    document.getElementById('conn-dot').className = 'conn-dot live';
+    document.getElementById('conn-text').textContent = '实时连接';
+  };
+  es.onerror = () => {
+    document.getElementById('conn-dot').className = 'conn-dot';
+    document.getElementById('conn-text').textContent = '重连中…';
+    es.close();
+    sseFailCount++;
+    if (sseFailCount >= SSE_FAIL_LIMIT) {
+      // Reload the page — index.php will re-check login and re-issue the
+      // trust cookie the Node backend needs.
+      location.reload();
+      return;
+    }
+    setTimeout(connect, 3000);
+  };
+}
+
+function applyState(state) {
+  document.getElementById('light-red').className    = 'light-dot red'    + (state.status === 'red'    ? ' active' : '');
+  document.getElementById('light-yellow').className = 'light-dot yellow' + (state.status === 'yellow' ? ' active' : '');
+  document.getElementById('light-green').className  = 'light-dot green'  + (state.status === 'green'  ? ' active' : '');
+
+  const label = document.getElementById('status-label');
+  const sub   = document.getElementById('status-sub');
+  label.className = 'status-label ' + state.status;
+
+  if (state.status === 'green') {
+    label.textContent = '任务已完成';
+    sub.textContent = state.hermesOnline ? 'Hermes 运行中 · 等待任务' : 'Hermes 未运行';
+  } else if (state.status === 'yellow') {
+    label.textContent = '正在执行任务';
+    sub.textContent = state.currentTool ? `工具: ${state.currentTool}` : '处理中…';
+  } else {
+    label.textContent = '需要审批';
+    sub.textContent = '请在下方处理权限请求';
+  }
+
+  const panel = document.getElementById('perm-panel');
+  if (state.status === 'red' && state.permission) {
+    currentPermission = state.permission;
+    document.getElementById('perm-tool-name').textContent = state.permission.tool_name;
+    const inp = state.permission.tool_input;
+    document.getElementById('perm-tool-input').textContent =
+      typeof inp === 'object' ? JSON.stringify(inp, null, 2) : String(inp);
+    panel.classList.add('show');
+  } else {
+    panel.classList.remove('show');
+    currentPermission = null;
+    document.getElementById('totp-wrap').style.display = 'none';
+    document.getElementById('totp-input').value = '';
+  }
+
+  renderActivity(state.activityLog || []);
+}
+
+function renderActivity(log) {
+  const el = document.getElementById('activity-list');
+  if (!log.length) { el.innerHTML = '<div class="activity-empty">暂无活动</div>'; return; }
+  el.innerHTML = log.map(item => {
+    const ts = new Date(item.time).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    return `<div class="activity-item">
+      <div class="activity-dot ${item.type}"></div>
+      <div class="activity-msg">${esc(item.message)}</div>
+      <div class="activity-time">${ts}</div>
+    </div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function decide(action) {
+  if (!currentPermission) return;
+  if (action === 'approve') {
+    const wrap = document.getElementById('totp-wrap');
+    if (wrap.style.display === 'none') { wrap.style.display = 'block'; document.getElementById('totp-input').focus(); return; }
+    const totp = document.getElementById('totp-input').value.trim();
+    if (!totp) { alert('请输入 TOTP 验证码'); return; }
+    try {
+      const r = await fetch(`decision/${currentPermission.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', totp })
+      });
+      const data = await r.json();
+      if (!r.ok) { alert(data.error === 'totp_invalid' ? 'TOTP 验证码错误，请重试' : (data.error || '操作失败')); }
+    } catch (e) { alert('网络错误'); }
+  } else {
+    try {
+      await fetch(`decision/${currentPermission.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deny' })
+      });
+    } catch (_) {}
+  }
+}
+
+connect();
+</script>
+</body>
+</html>

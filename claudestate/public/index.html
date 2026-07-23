@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude State</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --surface2: #f0f2f5;
+      --border: #e4e7ec;
+      --text: #111827;
+      --text-dim: #6b7280;
+      --green: #16a34a;
+      --green-bg: #f0fdf4;
+      --green-border: #bbf7d0;
+      --yellow: #d97706;
+      --yellow-bg: #fffbeb;
+      --yellow-border: #fde68a;
+      --red: #dc2626;
+      --red-bg: #fef2f2;
+      --red-border: #fecaca;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: var(--shadow);
+    }
+    .logo {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-icon {
+      width: 28px; height: 28px;
+      background: #111827;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .sound-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .sound-btn:hover { background: var(--border); color: var(--text); }
+    .sound-btn.on { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
+    .dl-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+      font-family: inherit;
+      text-decoration: none;
+    }
+    .dl-btn:hover { background: var(--border); color: var(--text); }
+    .conn-badge {
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .conn-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #d1d5db;
+      transition: background 0.3s;
+    }
+    .conn-dot.connected { background: var(--green); }
+
+    /* ── Main ── */
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 28px 24px;
+      display: grid;
+      grid-template-columns: 30% 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    /* ── Traffic light card ── */
+    .light-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: var(--shadow);
+    }
+    .light-card-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 24px;
+    }
+    .traffic-pole {
+      background: #1f2937;
+      border-radius: 72px;
+      padding: 28px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .light {
+      width: 165px; height: 165px;
+      border-radius: 50%;
+      background: #374151;
+      border: 5px solid rgba(0,0,0,0.25);
+      transition: background 0.35s ease, box-shadow 0.35s ease;
+      position: relative;
+    }
+    .light::after {
+      content: '';
+      position: absolute;
+      top: 18px; left: 22px;
+      width: 38px; height: 26px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      transform: rotate(-30deg);
+    }
+    .light.red-on    { background: #ef4444; box-shadow: 0 0 50px 18px rgba(239,68,68,0.55); }
+    .light.yellow-on { background: #f59e0b; box-shadow: 0 0 50px 18px rgba(245,158,11,0.55); }
+    .light.green-on  { background: #22c55e; box-shadow: 0 0 50px 18px rgba(34,197,94,0.55); }
+
+    .status-label {
+      margin-top: 24px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .status-label.green  { color: var(--green); }
+    .status-label.yellow { color: var(--yellow); }
+    .status-label.red    { color: var(--red); }
+    .status-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+      min-height: 16px;
+      line-height: 1.5;
+    }
+
+    /* ── Right panel ── */
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* ── Generic card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+    }
+
+    /* ── Permission card ── */
+    .perm-card {
+      background: var(--surface);
+      border: 1.5px solid var(--red-border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: none;
+      box-shadow: 0 0 0 3px rgba(220,38,38,0.08);
+    }
+    .perm-card.visible { display: block; }
+    .perm-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .perm-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: var(--red-bg);
+      border: 1px solid var(--red-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .perm-title { font-size: 14px; font-weight: 700; color: var(--text); }
+    .perm-subtitle { font-size: 12px; color: var(--text-dim); margin-top: 1px; }
+    .perm-tool-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 6px;
+      background: var(--red-bg);
+      border: 1px solid var(--red-border);
+      color: var(--red);
+      margin-bottom: 10px;
+    }
+    .perm-content {
+      background: #fafafa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 12px;
+      color: #374151;
+      max-height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-bottom: 14px;
+      line-height: 1.6;
+    }
+    .perm-actions { display: flex; gap: 8px; }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .btn-approve {
+      background: #16a34a;
+      color: #fff;
+    }
+    .btn-approve:hover { background: #15803d; }
+    .btn-deny {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-deny:hover { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── Token grid ── */
+    .token-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .tok-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 11px 13px;
+    }
+    .tok-label { font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
+    .tok-value {
+      font-size: 20px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .tok-value.accent { color: var(--green); }
+    .cost-row {
+      margin-top: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+    .cost-label { color: var(--text-dim); }
+    .cost-value { font-weight: 700; color: var(--yellow); }
+    .stat-row-group { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .stat-row {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+    .stat-val { font-weight: 600; color: var(--text); }
+    .stat-val.mono { font-family: monospace; font-size: 11px; color: var(--text-dim); max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+    .card-title-dim { font-weight: 400; color: #9ca3af; letter-spacing: 0; text-transform: none; font-size: 11px; }
+    .window-label { font-size: 12px; font-weight: 600; color: var(--text); }
+    .pct-badge { font-weight: 700; color: var(--text); font-size: 12px; }
+
+    /* Token progress */
+    .tok-progress-wrap { margin-bottom: 12px; }
+    .tok-progress-bar {
+      height: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 5px;
+    }
+    .tok-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #22c55e, #16a34a);
+      border-radius: 99px;
+      transition: width 0.6s ease, background 0.4s ease;
+    }
+    .tok-progress-fill.warn  { background: linear-gradient(90deg, #f59e0b, #d97706); }
+    .tok-progress-fill.danger{ background: linear-gradient(90deg, #ef4444, #dc2626); }
+    .tok-progress-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* ── Activity log ── */
+    .log-list { list-style: none; display: flex; flex-direction: column; gap: 5px; max-height: 200px; overflow-y: auto; }
+    .log-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 10px;
+      background: var(--surface2);
+      border-radius: 7px;
+      font-size: 12px;
+    }
+    .log-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .log-dot.tool       { background: var(--yellow); }
+    .log-dot.permission { background: var(--red); }
+    .log-dot.approved   { background: var(--green); }
+    .log-dot.denied     { background: var(--red); }
+    .log-dot.stop       { background: var(--green); }
+    .log-msg { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .log-time { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+    .log-empty { font-size: 12px; color: var(--text-dim); text-align: center; padding: 14px 0; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    @media (max-width: 640px) {
+      main { grid-template-columns: 1fr; padding: 16px; }
+      .light-card { flex-direction: row; gap: 20px; padding: 20px; }
+      .traffic-pole { flex-direction: row; }
+      .light { width: 54px; height: 54px; }
+      header { padding: 0 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    Claude State
+  </div>
+  <div class="header-right">
+    <a class="dl-btn" href="/claudestate/install/ClaudeState-Setup.exe" download title="下载安装包（Windows）">
+      <span>⬇</span>
+      <span>安装包</span>
+    </a>
+    <button class="sound-btn" id="soundBtn" onclick="toggleSound()">
+      <span id="soundIcon">🔕</span>
+      <span id="soundLabel">提示音关</span>
+    </button>
+    <div class="conn-badge">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connLabel">连接中</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- Traffic light -->
+  <div class="light-card">
+    <div class="light-card-label">运行状态</div>
+    <div class="traffic-pole">
+      <div class="light" id="lightRed"></div>
+      <div class="light" id="lightYellow"></div>
+      <div class="light" id="lightGreen"></div>
+    </div>
+    <div class="status-label green" id="statusLabel">空闲</div>
+    <div class="status-sub" id="statusSub">等待 Claude Code 连接</div>
+  </div>
+
+  <!-- Right -->
+  <div class="right-panel">
+
+    <!-- Permission request -->
+    <div class="perm-card" id="permCard">
+      <div class="perm-header">
+        <div class="perm-icon">🔐</div>
+        <div>
+          <div class="perm-title">需要权限审批</div>
+          <div class="perm-subtitle">Claude Code 正在请求执行以下操作</div>
+        </div>
+      </div>
+      <div class="perm-tool-tag">🔧 <span id="permTool">未知工具</span></div>
+      <div class="perm-content" id="permContent"></div>
+      <div class="perm-actions">
+        <button class="btn btn-approve" id="btnApprove" onclick="decide('approve')">✅ 批准执行</button>
+        <button class="btn btn-deny" id="btnDeny" onclick="decide('deny')">❌ 拒绝</button>
+      </div>
+    </div>
+
+    <!-- Token: Context window -->
+    <div class="card">
+      <div class="card-title">上下文窗口剩余 <span class="card-title-dim">/ 200K</span></div>
+      <div class="tok-progress-wrap">
+        <div class="tok-progress-bar">
+          <div class="tok-progress-fill" id="tokFill" style="width:100%"></div>
+        </div>
+        <div class="tok-progress-labels">
+          <span id="tokRemainLabel">— 剩余</span>
+          <span id="tokPctLabel">—%</span>
+        </div>
+      </div>
+      <div class="token-grid">
+        <div class="tok-item">
+          <div class="tok-label">剩余</div>
+          <div class="tok-value accent" id="tokRemain">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label">已用</div>
+          <div class="tok-value" id="tokIn">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label">缓存命中</div>
+          <div class="tok-value" id="tokCacheRead">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label">输出生成</div>
+          <div class="tok-value" id="tokOut">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token: 5-hour + 7-day windows -->
+    <div class="card">
+      <div class="card-title" style="display:flex;align-items:center;gap:8px">
+        滚动窗口用量
+        <span id="rlSourceBadge" style="font-size:10px;padding:2px 6px;border-radius:10px;background:#1a2a1a;color:#4ade80;display:none">官方数据</span>
+        <span id="rlEstBadge" style="font-size:10px;padding:2px 6px;border-radius:10px;background:#2a2a1a;color:#facc15;display:none">估算</span>
+      </div>
+
+      <!-- 5h -->
+      <div class="window-row">
+        <div class="window-label" id="tok5hLabel">5 小时</div>
+        <div class="tok-progress-bar" style="margin:6px 0 3px">
+          <div class="tok-progress-fill" id="tok5hFill" style="width:0%"></div>
+        </div>
+        <div class="tok-progress-labels">
+          <span id="tok5hRemainLabel">—</span>
+          <span id="tok5hPctLabel" class="pct-badge">—%</span>
+        </div>
+      </div>
+
+      <!-- 7d -->
+      <div class="window-row" style="margin-top:14px">
+        <div class="window-label" id="tok7dLabel">7 天</div>
+        <div class="tok-progress-bar" style="margin:6px 0 3px">
+          <div class="tok-progress-fill" id="tok7dFill" style="width:0%"></div>
+        </div>
+        <div class="tok-progress-labels">
+          <span id="tok7dRemainLabel">—</span>
+          <span id="tok7dPctLabel" class="pct-badge">—%</span>
+        </div>
+      </div>
+
+      <!-- 2x2 grid -->
+      <div class="token-grid" style="margin-top:14px">
+        <div class="tok-item">
+          <div class="tok-label" id="tok5hLeftLabel">5h 已用%</div>
+          <div class="tok-value" id="tok5hRemain">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label">5h 新增输入</div>
+          <div class="tok-value" id="tok5hUsed">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label" id="tok7dLeftLabel">7d 已用%</div>
+          <div class="tok-value" id="tok7dRemain">—</div>
+        </div>
+        <div class="tok-item">
+          <div class="tok-label">7d 新增输入</div>
+          <div class="tok-value" id="tok7dUsed">—</div>
+        </div>
+      </div>
+
+      <div class="stat-row-group">
+        <div class="stat-row">
+          <span class="cost-label">工具调用次数</span>
+          <span class="stat-val" id="toolCallCount">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="cost-label">权限审批次数</span>
+          <span class="stat-val" id="permCount">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="cost-label">会话 ID</span>
+          <span class="stat-val mono" id="sessionId">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity log -->
+    <div class="card">
+      <div class="card-title">活动日志</div>
+      <ul class="log-list" id="logList">
+        <li class="log-empty">暂无活动记录</li>
+      </ul>
+    </div>
+
+  </div>
+</main>
+
+<!-- TOTP approval modal -->
+<div id="totpModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#1a1a2e;border:1px solid #334;border-radius:14px;padding:28px 32px;width:min(360px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.6)">
+    <div style="font-size:22px;margin-bottom:4px">🔐 批准验证</div>
+    <div style="color:#888;font-size:13px;margin-bottom:20px">输入 Authenticator 动态验证码以批准此操作</div>
+    <input id="totpInput" type="text" inputmode="numeric" autocomplete="one-time-code"
+      maxlength="6" pattern="[0-9]{6}" placeholder="6 位动态码"
+      onkeydown="if(event.key==='Enter')submitTotp();if(event.key==='Escape')hideTotpModal();"
+      style="width:100%;background:#0d0d1a;border:1px solid #445;border-radius:8px;padding:12px 16px;color:#fff;font-size:24px;letter-spacing:6px;text-align:center;outline:none;box-sizing:border-box;font-family:monospace">
+    <div id="totpError" style="color:#f87171;font-size:12px;min-height:18px;margin:8px 0 16px;text-align:center"></div>
+    <div style="display:flex;gap:10px">
+      <button onclick="hideTotpModal()" style="flex:1;padding:11px;background:#2a2a3e;border:1px solid #445;border-radius:8px;color:#aaa;cursor:pointer;font-size:14px">取消</button>
+      <button onclick="submitTotp()" style="flex:2;padding:11px;background:#16a34a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;font-weight:700">✅ 确认批准</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Audio ──────────────────────────────────────────────────────────────────
+  let soundOn = localStorage.getItem('claudestate_sound') === '1';
+  let audioCtx = null;
+
+  function updateSoundBtn() {
+    document.getElementById('soundIcon').textContent  = soundOn ? '🔔' : '🔕';
+    document.getElementById('soundLabel').textContent = soundOn ? '提示音开' : '提示音关';
+    document.getElementById('soundBtn').className = 'sound-btn' + (soundOn ? ' on' : '');
+  }
+  updateSoundBtn();
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    localStorage.setItem('claudestate_sound', soundOn ? '1' : '0');
+    updateSoundBtn();
+    if (soundOn) playTone('unlock');
+  }
+
+  function getCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playTone(type) {
+    if (!soundOn) return;
+    try {
+      const ctx = getCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const configs = {
+        // 红灯: 紧促三声提醒
+        red: [
+          { freq: 880, start: 0,    dur: 0.12, vol: 0.5 },
+          { freq: 880, start: 0.18, dur: 0.12, vol: 0.5 },
+          { freq: 1100,start: 0.36, dur: 0.2,  vol: 0.6 },
+        ],
+        // 绿灯: 轻快完成音
+        green: [
+          { freq: 523, start: 0,    dur: 0.12, vol: 0.3 },
+          { freq: 659, start: 0.1,  dur: 0.12, vol: 0.3 },
+          { freq: 784, start: 0.2,  dur: 0.2,  vol: 0.35 },
+        ],
+        // 解锁测试音
+        unlock: [
+          { freq: 660, start: 0,   dur: 0.1, vol: 0.25 },
+          { freq: 880, start: 0.1, dur: 0.15,vol: 0.25 },
+        ],
+      };
+
+      const notes = configs[type] || configs.unlock;
+      const now = ctx.currentTime;
+      notes.forEach(({ freq, start, dur, vol }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(vol, now + start);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur + 0.05);
+      });
+    } catch(e) { console.warn('Audio error', e); }
+  }
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentPermId = null;
+  let prevStatus = null;
+  let es = null;
+
+  function fmt(n) {
+    if (!n) return '0';
+    if (n >= 1_000_000) return (n/1_000_000).toFixed(1)+'M';
+    if (n >= 1_000)     return (n/1_000).toFixed(1)+'K';
+    return String(n);
+  }
+
+  function timeAgo(ts) {
+    const d = Math.floor((Date.now()-ts)/1000);
+    if (d < 5)   return '刚刚';
+    if (d < 60)  return d+'秒前';
+    if (d < 3600)return Math.floor(d/60)+'分前';
+    return Math.floor(d/3600)+'小时前';
+  }
+
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function applyState(s) {
+    const { status, currentTool, permission, tokenUsage, activityLog } = s;
+
+    // Lights
+    document.getElementById('lightRed').className    = 'light'+(status==='red'    ?' red-on'   :'');
+    document.getElementById('lightYellow').className = 'light'+(status==='yellow' ?' yellow-on':'');
+    document.getElementById('lightGreen').className  = 'light'+(status==='green'  ?' green-on' :'');
+
+    // Status text
+    const lbl = document.getElementById('statusLabel');
+    const sub = document.getElementById('statusSub');
+    lbl.className = 'status-label '+status;
+    if (status === 'green') {
+      lbl.textContent = '空闲';
+      sub.textContent = '任务已完成，等待下一条指令';
+    } else if (status === 'yellow') {
+      lbl.textContent = '执行中';
+      sub.textContent = currentTool ? '当前工具：'+currentTool : '处理中…';
+    } else {
+      lbl.textContent = '等待审批';
+      sub.textContent = '请在下方批准或拒绝操作';
+    }
+
+    // Sound on transition
+    if (prevStatus !== status) {
+      if (status === 'red')   playTone('red');
+      if (status === 'green' && prevStatus !== null) playTone('green');
+      prevStatus = status;
+    }
+
+    // Permission card
+    const pc = document.getElementById('permCard');
+    if (status === 'red' && permission) {
+      currentPermId = permission.id;
+      document.getElementById('permTool').textContent = permission.tool_name;
+      let detail = typeof permission.tool_input === 'object'
+        ? JSON.stringify(permission.tool_input, null, 2)
+        : String(permission.tool_input);
+      document.getElementById('permContent').textContent = detail;
+      pc.classList.add('visible');
+      document.getElementById('btnApprove').disabled = false;
+      document.getElementById('btnDeny').disabled = false;
+    } else {
+      pc.classList.remove('visible');
+      if (status !== 'red') currentPermId = null;
+    }
+
+    // ── Context window (200K) ────────────────────────────────────────
+    const u = tokenUsage || {};
+    const MAX_CTX = 200_000;
+    const used = (u.input_tokens || 0);
+    const remain = Math.max(0, MAX_CTX - used);
+    const pct = Math.round((remain / MAX_CTX) * 100);
+    const hasTokens = used > 0;
+
+    document.getElementById('tokIn').textContent        = hasTokens ? fmt(used)   : '—';
+    document.getElementById('tokOut').textContent       = hasTokens ? fmt(u.output_tokens) : '—';
+    document.getElementById('tokCacheRead').textContent = hasTokens ? fmt(u.cache_read_input_tokens) : '—';
+    document.getElementById('tokRemain').textContent    = hasTokens ? fmt(remain) : '—';
+
+    const fill = document.getElementById('tokFill');
+    fill.style.width = (hasTokens ? pct : 100) + '%';
+    fill.className = 'tok-progress-fill' + (pct < 20 ? ' danger' : pct < 40 ? ' warn' : '');
+    document.getElementById('tokRemainLabel').textContent = hasTokens ? fmt(remain)+' 剩余' : '— 剩余';
+    document.getElementById('tokPctLabel').textContent    = hasTokens ? pct+'%' : '—%';
+
+    // ── 5-hour + 7-day windows ───────────────────────────────────────
+    const rl = s.rateLimits;
+    const w5 = s.window5h || {};
+    const w7 = s.window7d || {};
+
+    document.getElementById('rlSourceBadge').style.display = rl ? 'inline' : 'none';
+    document.getElementById('rlEstBadge').style.display    = (!rl && (w5.input_tokens || w7.input_tokens)) ? 'inline' : 'none';
+
+    if (rl) {
+      // Official data: show used percentage from Anthropic API
+      const fh = rl.five_hour || {};
+      const sd = rl.seven_day  || {};
+      const fhUsedPct = Math.round(fh.used_percentage || 0);
+      const sdUsedPct = Math.round(sd.used_percentage || 0);
+      const fhRemPct  = 100 - fhUsedPct;
+      const sdRemPct  = 100 - sdUsedPct;
+
+      document.getElementById('tok5hLabel').innerHTML = '5 小时 <span class="card-title-dim">官方</span>';
+      document.getElementById('tok7dLabel').innerHTML = '7 天 <span class="card-title-dim">官方</span>';
+      document.getElementById('tok5hLeftLabel').textContent = '5h 已用%';
+      document.getElementById('tok7dLeftLabel').textContent = '7d 已用%';
+
+      const fill5h = document.getElementById('tok5hFill');
+      fill5h.style.width = fhRemPct + '%';
+      fill5h.className = 'tok-progress-fill' + (fhRemPct < 20 ? ' danger' : fhRemPct < 40 ? ' warn' : '');
+      document.getElementById('tok5hRemainLabel').textContent = fhRemPct + '% 剩余';
+      document.getElementById('tok5hPctLabel').textContent    = fhUsedPct + '% 已用';
+      document.getElementById('tok5hRemain').textContent = fhUsedPct + '%';
+      document.getElementById('tok5hUsed').textContent   = w5.input_tokens ? fmt(w5.input_tokens) : '—';
+
+      const fill7d = document.getElementById('tok7dFill');
+      fill7d.style.width = sdRemPct + '%';
+      fill7d.className = 'tok-progress-fill' + (sdRemPct < 20 ? ' danger' : sdRemPct < 40 ? ' warn' : '');
+      document.getElementById('tok7dRemainLabel').textContent = sdRemPct + '% 剩余';
+      document.getElementById('tok7dPctLabel').textContent    = sdUsedPct + '% 已用';
+      document.getElementById('tok7dRemain').textContent = sdUsedPct + '%';
+      document.getElementById('tok7dUsed').textContent   = w7.input_tokens ? fmt(w7.input_tokens) : '—';
+    } else {
+      // Fallback: JSONL-based estimate
+      const MAX_5H = 900_000;
+      const MAX_7D = 5_000_000;
+      const w5used   = w5.input_tokens || 0;
+      const w7used   = w7.input_tokens || 0;
+      const w5remain = Math.max(0, MAX_5H - w5used);
+      const w7remain = Math.max(0, MAX_7D - w7used);
+      const w5pct    = Math.round((w5remain / MAX_5H) * 100);
+      const w7pct    = Math.round((w7remain / MAX_7D) * 100);
+      const has5h    = w5used > 0;
+      const has7d    = w7used > 0;
+
+      document.getElementById('tok5hLabel').innerHTML = '5 小时 <span class="card-title-dim">/ 900K 估算</span>';
+      document.getElementById('tok7dLabel').innerHTML = '7 天 <span class="card-title-dim">/ 5M 估算</span>';
+      document.getElementById('tok5hLeftLabel').textContent = '5h 剩余';
+      document.getElementById('tok7dLeftLabel').textContent = '7d 剩余';
+
+      const fill5h = document.getElementById('tok5hFill');
+      fill5h.style.width = (has5h ? w5pct : 0) + '%';
+      fill5h.className = 'tok-progress-fill' + (w5pct < 20 ? ' danger' : w5pct < 40 ? ' warn' : '');
+      document.getElementById('tok5hRemainLabel').textContent = has5h ? fmt(w5remain)+' 剩余' : '—';
+      document.getElementById('tok5hPctLabel').textContent    = has5h ? w5pct+'%' : '—%';
+      document.getElementById('tok5hRemain').textContent = has5h ? fmt(w5remain) : '—';
+      document.getElementById('tok5hUsed').textContent   = has5h ? fmt(w5used)   : '—';
+
+      const fill7d = document.getElementById('tok7dFill');
+      fill7d.style.width = (has7d ? w7pct : 0) + '%';
+      fill7d.className = 'tok-progress-fill' + (w7pct < 20 ? ' danger' : w7pct < 40 ? ' warn' : '');
+      document.getElementById('tok7dRemainLabel').textContent = has7d ? fmt(w7remain)+' 剩余' : '—';
+      document.getElementById('tok7dPctLabel').textContent    = has7d ? w7pct+'%' : '—%';
+      document.getElementById('tok7dRemain').textContent = has7d ? fmt(w7remain) : '—';
+      document.getElementById('tok7dUsed').textContent   = has7d ? fmt(w7used)   : '—';
+    }
+
+    // Stats
+    const toolCalls = (s.activityLog||[]).filter(e=>e.type==='tool').length;
+    const permCalls = (s.activityLog||[]).filter(e=>e.type==='permission'||e.type==='approved'||e.type==='denied').length;
+    document.getElementById('toolCallCount').textContent = s.totalToolCalls ?? toolCalls;
+    document.getElementById('permCount').textContent     = s.totalPermissions ?? permCalls;
+    document.getElementById('sessionId').textContent     = s.sessionId ? s.sessionId.slice(0,16)+'…' : '—';
+
+    // Log
+    const list = document.getElementById('logList');
+    if (activityLog && activityLog.length > 0) {
+      list.innerHTML = activityLog.map(e => `
+        <li class="log-item">
+          <div class="log-dot ${esc(e.type)}"></div>
+          <span class="log-msg">${esc(e.message)}</span>
+          <span class="log-time">${timeAgo(e.time)}</span>
+        </li>`).join('');
+    } else {
+      list.innerHTML = '<li class="log-empty">暂无活动记录</li>';
+    }
+  }
+
+  function decide(action) {
+    if (!currentPermId) return;
+    if (action === 'approve') {
+      showTotpModal(currentPermId);
+    } else {
+      sendDecision(currentPermId, 'deny', null);
+    }
+  }
+
+  function sendDecision(id, action, totp) {
+    document.getElementById('btnApprove').disabled = true;
+    document.getElementById('btnDeny').disabled = true;
+    fetch(location.pathname.replace(/\/[^/]*$/, '')+'/decision/'+id, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action, totp })
+    }).then(r => r.json()).then(d => {
+      if (d.error === 'totp_invalid') {
+        showTotpError('验证码错误，请重试');
+        document.getElementById('btnApprove').disabled = false;
+        document.getElementById('btnDeny').disabled = false;
+      } else {
+        hideTotpModal();
+      }
+    }).catch(console.error);
+  }
+
+  // ── TOTP modal ────────────────────────────────────────────────────────────
+  function showTotpModal(id) {
+    const modal = document.getElementById('totpModal');
+    modal.style.display = 'flex';
+    const inp = document.getElementById('totpInput');
+    inp.value = '';
+    inp.focus();
+    document.getElementById('totpError').textContent = '';
+    document.getElementById('totpModal').dataset.permId = id;
+  }
+  function hideTotpModal() {
+    document.getElementById('totpModal').style.display = 'none';
+    document.getElementById('totpInput').value = '';
+    document.getElementById('totpError').textContent = '';
+  }
+  function showTotpError(msg) {
+    document.getElementById('totpError').textContent = msg;
+    const inp = document.getElementById('totpInput');
+    inp.value = '';
+    inp.focus();
+  }
+  function submitTotp() {
+    const id = document.getElementById('totpModal').dataset.permId;
+    const code = document.getElementById('totpInput').value.trim();
+    if (code.length !== 6) { showTotpError('请输入 6 位验证码'); return; }
+    sendDecision(id, 'approve', code);
+  }
+
+  // ── SSE ───────────────────────────────────────────────────────────────────
+  // If /events keeps failing (this app's own trust cookie was never set —
+  // e.g. access came in via the cross-app shared cookie only), bounce back
+  // to this app's own verification screen after a few consecutive failures.
+  var sseFailCount = 0;
+  var SSE_FAIL_LIMIT = 3;
+
+  function connect() {
+    const base = location.pathname.replace(/\/[^/]*$/, '') || '';
+    es = new EventSource(base+'/events');
+
+    es.onopen = () => {
+      sseFailCount = 0;
+      document.getElementById('connDot').classList.add('connected');
+      document.getElementById('connLabel').textContent = '已连接';
+    };
+    es.addEventListener('state', e => {
+      sseFailCount = 0;
+      document.getElementById('connDot').classList.add('connected');
+      document.getElementById('connLabel').textContent = '已连接';
+      applyState(JSON.parse(e.data));
+    });
+    es.onerror = () => {
+      document.getElementById('connDot').classList.remove('connected');
+      document.getElementById('connLabel').textContent = '重连中…';
+      es.close();
+      sseFailCount++;
+      if (sseFailCount >= SSE_FAIL_LIMIT) {
+        // Reload the page — index.php will re-check login and re-issue the
+        // trust cookie the Node backend needs.
+        location.reload();
+        return;
+      }
+      setTimeout(connect, 3000);
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>

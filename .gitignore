@@ -1,0 +1,22 @@
+# Real secrets — never commit these. Copy the .example files instead.
+**/config.php
+**/.env
+.env
+
+# Runtime state / data that's specific to a deployment, not source code
+**/.totp_secret
+**/.state_cache.json
+**/data/*
+!**/data/.gitkeep
+**/sessions/*
+!**/sessions/.gitkeep
+**/*.bak
+**/*.bak-*
+
+# Node
+node_modules/
+package-lock.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
