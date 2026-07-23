@@ -6,8 +6,9 @@
 |------|---------|---------|---------------|
 | [`claudestate/`](claudestate) | Claude Code | Node.js + Express（SSE 实时推送） | Claude Code 原生 Hook 机制 |
 | [`hermesstate/`](hermesstate) | Hermes（一款桌面端 AI Agent） | Node.js + Express（SSE 实时推送） | PowerShell 脚本轮询进程状态 + 解析本地日志 |
+| `codexstate/`（即将推出） | Codex 类 Agent | 纯 PHP + 本地文件存储 | 由使用方自行接入 |
 
-面向 Codex 类 Agent 的第三个面板计划在后续版本中加入。
+CodexState 此前已在内部完成开发，本次发布暂缓收录，计划在后续版本中补充加入。
 
 ## 工作原理
 
