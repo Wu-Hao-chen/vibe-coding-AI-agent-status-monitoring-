@@ -1,6 +1,14 @@
 # CodexState
 
-跟 [ClaudeState](../claudestate) 类似的监控面板，但架构不同：**纯 PHP + 本地 JSON 文件存储**，没有 Node.js 服务，状态数据由你自己的 Agent 脚本直接 POST 到 `api.php`。登录只需要通过你自己的 SSO（`auth_current_user()` + 用户名/角色检查），没有额外的验证步骤。
+跟 [ClaudeState](../claudestate) 类似的监控面板，但架构不同：**纯 PHP + 本地 JSON 文件存储**，没有 Node.js 服务，状态数据由你自己的 Agent 脚本直接 POST 到 `api.php`。
+
+## ⚠️ 关于验证/权限控制
+
+**这套代码没有内置的身份验证或权限控制。** 原始部署里有手机验证、TOTP 二次确认、硬编码用户名白名单，这些都跟原来那台服务器强绑定，已经全部拿掉。现在只剩 `cs_user()` 检查你自己的 `auth_current_user()` 有没有返回登录用户——**返回了就直接放行，不检查角色/用户名/权限**。
+
+`api.php` 里"批准/拒绝一个待处理操作"（`op=decision`）只保留了 CSRF 保护，**没有二次确认**——原来这里要求输入 TOTP 动态码，已经删掉。`CODEXSTATE_AGENT_TOKEN` 仍然保护着 Agent 侧的状态上报接口，这个没删（泄露的后果不一样，见下方安全说明）。
+
+部署前请自己评估风险，并在 `auth_current_user()` / `php/auth.php` 里加上你需要的验证方式（角色检查、二次确认、IP 白名单等）。
 
 ## 架构
 
@@ -23,10 +31,10 @@
 
 ```bash
 cp php/config.example.php php/config.php
-# 编辑 config.php，填入域名、密钥、CODEXSTATE_AGENT_TOKEN、CODEXSTATE_ALLOWED_USERNAME 等
+# 编辑 config.php，填入域名、密钥、CODEXSTATE_AGENT_TOKEN 等
 ```
 
-同 ClaudeState，`php/auth.php` 顶部需要一个外部登录网关提供 `auth_current_user()`。`CODEXSTATE_TOTP_SECRET` 需要你手动添加到自己的身份验证器 App 里（不会在界面上展示）——它只用于"批准/拒绝一个待处理操作"这个动作的二次确认，跟登录无关。
+同 ClaudeState，`php/auth.php` 顶部需要一个外部登录网关提供 `auth_current_user()`。
 
 ### 2. `api.php` 接口约定
 
@@ -86,19 +94,18 @@ result=<可选，执行结果描述，最长 160 字符>
 GET /codexstate/api.php?action=status
 ```
 
-**批准/拒绝一个待处理操作**（浏览器侧，需要 CSRF token + 批准时需要 TOTP）：
+**批准/拒绝一个待处理操作**（浏览器侧，只需要 CSRF token）：
 ```
 POST /codexstate/api.php
 op=decision
 csrf=<index.php 页面里嵌入的 CSRF token>
 approvalId=<待处理操作的 id>
 decision=accept|decline
-totp=<仅 decision=accept 时需要，6 位动态验证码>
 ```
 
 ## 安全说明
 
-`CODEXSTATE_AGENT_TOKEN` 是 Agent 脚本和 `api.php` 之间唯一的信任凭证——泄露了等于任何人都能伪造状态更新、甚至下发批准指令。用 `openssl rand -hex 32` 生成，不要复用其他用途的密钥。
+`CODEXSTATE_AGENT_TOKEN` 是 Agent 脚本和 `api.php` 之间唯一的信任凭证——泄露了等于任何人都能伪造状态更新、甚至下发批准指令。用 `openssl rand -hex 32` 生成，不要复用其他用途的密钥。这个是本仓库唯一保留的凭证机制，因为它保护的是"谁能代表你的 Agent 说话"这个跟具体部署强相关的动作，跟被删掉的那些"用户登录后还要不要再验证一次"的环节不是一回事。
 
 ## 已知的架构限制
 

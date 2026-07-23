@@ -2,9 +2,21 @@
 declare(strict_types=1);
 
 // EDIT ME: This expects an external login gateway that exposes
-// auth_current_user(): ?array, returning at least ['id' => int, 'role' => string]
-// for the logged-in admin (however you handle that — your own SSO, a simple
+// auth_current_user(): ?array, returning a truthy array for a logged-in user
+// or null otherwise (however you handle that — your own SSO, a simple
 // password gate, etc. is entirely up to you; this repo doesn't include one).
+//
+// SECURITY NOTE: this is the *only* gate in front of the dashboard as shipped
+// — whatever auth_current_user() returns, ANY logged-in user gets in, with no
+// role/permission check on top. The original private deployment this was
+// extracted from also had a role check, a phone/SMS verification step, and a
+// TOTP-approval layer here; all removed for this public template because they
+// were too specific (tied to one phone number, one Aliyun account, one role
+// name) to generalize safely — copy-pasting someone else's example secrets is
+// worse than having none. Decide your own risk tolerance before exposing this
+// publicly, and add whatever access control you need on top of
+// auth_current_user() (a role/permission check, a second factor, an IP
+// allowlist, a VPN, etc.).
 require_once '/path/to/your/auth-gateway/app.php';
 require_once __DIR__ . '/config.php';
 
@@ -18,35 +30,9 @@ function cls_headers(): void {
 }
 
 function cls_user(): ?array {
-    $user = auth_current_user();
-    if (!$user || ($user['role'] ?? '') !== 'super_admin') return null;
-    return $user;
+    return auth_current_user();
 }
 
 function cls_login_url(): string {
     return '/login/?return=' . rawurlencode('https://' . CLS_DOMAIN . '/claudestate/');
-}
-
-function cls_b64u(string $v): string {
-    return rtrim(strtr(base64_encode($v), '+/', '-_'), '=');
-}
-
-// The Node server (server.js) is a separate process on a different port, so
-// it can't read this PHP app's session — instead we hand it a short-lived,
-// HMAC-signed cookie it can verify on its own. Re-issued on every page load
-// (see index.php), so it's really just "were you allowed into index.php
-// recently", not a separate credential of its own.
-function cls_set_trusted(array $user): void {
-    $payload = cls_b64u(json_encode([
-        'uid'   => (int)$user['id'],
-        'exp'   => time() + CLS_TRUST_TTL,
-        'ua'    => hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? ''),
-        'nonce' => bin2hex(random_bytes(12)),
-    ], JSON_UNESCAPED_SLASHES));
-    $value = $payload . '.' . hash_hmac('sha256', $payload, CLS_COOKIE_KEY);
-    setcookie('CLAUDESTATE_TRUST', $value, [
-        'expires' => time() + CLS_TRUST_TTL,
-        'path'    => '/claudestate/',
-        'secure'  => true, 'httponly' => true, 'samesite' => 'Strict',
-    ]);
 }

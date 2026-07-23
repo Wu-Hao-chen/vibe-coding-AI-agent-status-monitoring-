@@ -2,10 +2,21 @@
 declare(strict_types=1);
 
 // EDIT ME: This expects an external login gateway that exposes
-// auth_current_user(): ?array, returning at least
-// ['id' => int, 'username' => string, 'role' => string] for the logged-in admin
-// (however you handle that — your own SSO, a simple password gate, etc. is
-// entirely up to you; this repo doesn't include one).
+// auth_current_user(): ?array, returning a truthy array for a logged-in user
+// or null otherwise (however you handle that — your own SSO, a simple
+// password gate, etc. is entirely up to you; this repo doesn't include one).
+//
+// SECURITY NOTE: this is the *only* gate in front of the dashboard as shipped
+// — whatever auth_current_user() returns, ANY logged-in user gets in, with no
+// role/username/permission check on top. The original private deployment
+// this was extracted from also had a hardcoded username allowlist, a
+// phone/SMS verification step, and a TOTP-enrollment layer here; all removed
+// for this public template because they were too specific (tied to one
+// username, one phone number, one Aliyun account) to generalize safely —
+// copy-pasting someone else's example secrets is worse than having none.
+// Decide your own risk tolerance before exposing this publicly, and add
+// whatever access control you need on top of auth_current_user() (a
+// role/username check, a second factor, an IP allowlist, a VPN, etc.).
 require_once '/path/to/your/auth-gateway/app.php';
 require_once __DIR__ . '/config.php';
 
@@ -22,11 +33,7 @@ function cs_headers(): void
 
 function cs_user(): ?array
 {
-    $user = auth_current_user();
-    if (!$user || strtolower((string)$user['username']) !== strtolower(CODEXSTATE_ALLOWED_USERNAME) || ($user['role'] ?? '') !== 'super_admin') {
-        return null;
-    }
-    return $user;
+    return auth_current_user();
 }
 
 function cs_login_url(): string
@@ -46,8 +53,8 @@ function cs_start_session(): void
 }
 
 // Just CSRF protection for the dashboard's own approve/decline action — not
-// part of "verification", kept regardless since it's a real state-changing
-// POST from the browser.
+// an identity check, kept regardless since it's a real state-changing POST
+// from the browser.
 function cs_csrf(): string
 {
     cs_start_session();
@@ -58,54 +65,4 @@ function cs_csrf(): string
 function cs_verify_csrf(?string $token): bool
 {
     return is_string($token) && hash_equals(cs_csrf(), $token);
-}
-
-// TOTP is used for approving/denying a pending action from the dashboard
-// (see api.php's op === 'decision'), NOT for login — cs_user() alone gates
-// the dashboard. Add CODEXSTATE_TOTP_SECRET to your authenticator app
-// manually (it's not displayed anywhere in the UI).
-function cs_base32_decode(string $secret): string
-{
-    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    $bits = '';
-    foreach (str_split(strtoupper($secret)) as $char) {
-        $index = strpos($alphabet, $char);
-        if ($index === false) continue;
-        $bits .= str_pad(decbin($index), 5, '0', STR_PAD_LEFT);
-    }
-    $output = '';
-    for ($i = 0; $i + 8 <= strlen($bits); $i += 8) $output .= chr(bindec(substr($bits, $i, 8)));
-    return $output;
-}
-
-function cs_totp_for_counter(int $counter): string
-{
-    $high = intdiv($counter, 0x100000000);
-    $low = $counter % 0x100000000;
-    $hash = hash_hmac('sha1', pack('NN', $high, $low), cs_base32_decode(CODEXSTATE_TOTP_SECRET), true);
-    $offset = ord($hash[19]) & 0x0f;
-    $value = unpack('N', substr($hash, $offset, 4))[1] & 0x7fffffff;
-    return str_pad((string)($value % 1000000), 6, '0', STR_PAD_LEFT);
-}
-
-// $consume prevents the same code being replayed twice within its validity
-// window — pass true when this check authorizes a real action (like here,
-// approving a pending command).
-function cs_verify_totp(string $code, bool $consume = false): bool
-{
-    if (!preg_match('/^\d{6}$/', $code)) return false;
-    $current = intdiv(time(), 30);
-    for ($counter = $current - 1; $counter <= $current + 1; $counter++) {
-        if (!hash_equals(cs_totp_for_counter($counter), $code)) continue;
-        if (!$consume) return true;
-        $fh = fopen(CODEXSTATE_TOTP_COUNTER_FILE, 'c+');
-        if (!$fh) return false;
-        flock($fh, LOCK_EX);
-        $last = (int)trim(stream_get_contents($fh));
-        if ($counter <= $last) { flock($fh, LOCK_UN); fclose($fh); return false; }
-        ftruncate($fh, 0); rewind($fh); fwrite($fh, (string)$counter); fflush($fh);
-        flock($fh, LOCK_UN); fclose($fh);
-        return true;
-    }
-    return false;
 }

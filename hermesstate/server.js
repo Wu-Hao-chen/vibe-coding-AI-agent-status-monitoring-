@@ -1,6 +1,5 @@
 const express = require('express');
 const path = require('path');
-const crypto = require('crypto');
 const fs = require('fs');
 
 const app = express();
@@ -8,79 +7,19 @@ const PORT = process.env.PORT || 3457;
 
 const UPLOAD_SECRET = process.env.UPLOAD_SECRET;
 if (!UPLOAD_SECRET) throw new Error('UPLOAD_SECRET env var is required');
-// Must match HMS_COOKIE_KEY in the PHP auth layer's config.php — see .env.example
-const HMS_COOKIE_KEY = process.env.HMS_COOKIE_KEY;
-if (!HMS_COOKIE_KEY) throw new Error('HMS_COOKIE_KEY env var is required');
 
-// ── TOTP (for permission approve) ─────────────────────────────────────────────
-function base32Decode(s) {
-  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = 0, val = 0;
-  const out = [];
-  for (const c of s.toUpperCase().replace(/=+$/, '').replace(/\s/g, '')) {
-    const idx = alpha.indexOf(c);
-    if (idx < 0) continue;
-    val = (val << 5) | idx; bits += 5;
-    if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8; }
-  }
-  return Buffer.from(out);
-}
-function totpCode(secret, step) {
-  const key = base32Decode(secret);
-  const buf = Buffer.alloc(8);
-  buf.writeBigInt64BE(BigInt(step));
-  const h = crypto.createHmac('sha1', key).update(buf).digest();
-  const o = h[19] & 0xf;
-  const n = ((h[o] & 0x7f) << 24 | h[o+1] << 16 | h[o+2] << 8 | h[o+3]) % 1_000_000;
-  return n.toString().padStart(6, '0');
-}
-function verifyTotp(token) {
-  try {
-    const secret = fs.readFileSync(path.join(__dirname, '.totp_secret'), 'utf8').trim();
-    const step = Math.floor(Date.now() / 1000 / 30);
-    for (const w of [-1, 0, 1]) {
-      if (totpCode(secret, step + w) === String(token).trim()) return true;
-    }
-  } catch (_) {}
-  return false;
-}
-
-// ── HERMESSTATE_TRUST cookie verification ─────────────────────────────────────
-function parseCookies(req) {
-  const list = {};
-  const h = req.headers.cookie;
-  if (!h) return list;
-  h.split(';').forEach(p => {
-    const [k, ...v] = p.trim().split('=');
-    list[k.trim()] = decodeURIComponent(v.join('='));
-  });
-  return list;
-}
-
-function b64uDecode(s) {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  s += '='.repeat((4 - s.length % 4) % 4);
-  return Buffer.from(s, 'base64').toString('utf8');
-}
-
-function isTrusted(req) {
-  try {
-    const raw = parseCookies(req)['HERMESSTATE_TRUST'] || '';
-    const dot = raw.lastIndexOf('.');
-    if (dot < 1) return false;
-    const encoded = raw.slice(0, dot);
-    const sig     = raw.slice(dot + 1);
-    const expected = crypto.createHmac('sha256', HMS_COOKIE_KEY).update(encoded).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return false;
-    const payload = JSON.parse(b64uDecode(encoded));
-    return payload && payload.exp >= Math.floor(Date.now() / 1000);
-  } catch (_) { return false; }
-}
-
-function requireTrust(req, res, next) {
-  if (isTrusted(req)) return next();
-  res.status(401).json({ error: 'unauthorized' });
-}
+// ─────────────────────────────────────────────────────────────────────────
+// SECURITY NOTE: as shipped, nothing below this line authenticates who's
+// calling /events or /decision/:id — the original private deployment this
+// was extracted from had a phone/SMS + TOTP-approval + signed-cookie layer
+// here, all removed for this public template because it was too specific to
+// generalize (and too easy to misconfigure by copy-pasting someone else's
+// secrets). If you expose this publicly, decide your own risk tolerance and
+// add your own gate — e.g. re-check whatever your PHP login layer's
+// auth_current_user() considers valid, put this whole app behind a VPN/IP
+// allowlist, or reintroduce a signed-cookie handshake if you need
+// cross-process verification between this Node service and the PHP layer.
+// ─────────────────────────────────────────────────────────────────────────
 
 // ── Express ───────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
@@ -128,9 +67,8 @@ setInterval(() => {
   }
 }, 30_000);
 
-// SSE — requires HERMESSTATE_TRUST cookie
+// SSE — no auth check, see the security note above
 app.get('/events', (req, res) => {
-  if (!isTrusted(req)) return res.status(401).end();
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -253,22 +191,18 @@ app.post('/hook/stop', (req, res) => {
   res.json({});
 });
 
-// ── Decision (approve requires TOTP) ─────────────────────────────────────────
-app.post('/decision/:id', requireTrust, (req, res) => {
+// ── Decision — no auth check, see the security note above ──────────────────
+app.post('/decision/:id', (req, res) => {
   const { id } = req.params;
-  const { action, totp } = req.body;
+  const { action } = req.body;
   if (!pendingRequests.has(id)) return res.status(404).json({ error: '请求不存在或已超时' });
-  if (action === 'approve') {
-    if (!totp) return res.status(401).json({ error: 'totp_required' });
-    if (!verifyTotp(totp)) return res.status(401).json({ error: 'totp_invalid' });
-  }
   const resolve = pendingRequests.get(id);
   pendingRequests.delete(id);
   resolve(action === 'approve' ? 'approve' : 'deny');
   res.json({ ok: true, action });
 });
 
-app.get('/api/state', requireTrust, (req, res) => res.json(state));
+app.get('/api/state', (req, res) => res.json(state));
 
 // ── Upload HTML ───────────────────────────────────────────────────────────────
 app.post('/admin/upload-html', (req, res) => {

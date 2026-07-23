@@ -31,7 +31,6 @@ if ($op === 'decision') {
     if (!cs_verify_csrf($_POST['csrf'] ?? null)) fail(403, 'csrf_failed');
     $decision = (string)($_POST['decision'] ?? '');
     if (!in_array($decision, ['accept', 'decline'], true)) fail(422, 'invalid_decision');
-    if ($decision === 'accept' && !cs_verify_totp(trim((string)($_POST['totp'] ?? '')), true)) fail(403, 'invalid_totp');
     queue_decision();
     exit;
 }

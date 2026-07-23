@@ -436,22 +436,6 @@
   </div>
 </main>
 
-<div id="totpModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:999;align-items:center;justify-content:center">
-  <div style="background:#1a1a2e;border:1px solid #334;border-radius:14px;padding:28px 32px;width:min(360px,90vw);box-shadow:0 20px 60px rgba(0,0,0,.6)">
-    <div style="font-size:22px;margin-bottom:4px">&#128272; &#25209;&#20934;&#39564;&#35777;</div>
-    <div style="color:#888;font-size:13px;margin-bottom:20px">&#36755;&#20837; Authenticator &#21160;&#24577;&#39564;&#35777;&#30721;&#20197;&#25209;&#20934;&#27492;&#25805;&#20316;</div>
-    <input id="totpInput" type="text" inputmode="numeric" autocomplete="one-time-code"
-      maxlength="6" pattern="[0-9]{6}" placeholder="6 &#20301;&#21160;&#24577;&#30721;"
-      onkeydown="if(event.key==='Enter')submitTotp();if(event.key==='Escape')hideTotpModal();"
-      style="width:100%;background:#0d0d1a;border:1px solid #445;border-radius:8px;padding:12px 16px;color:#fff;font-size:24px;letter-spacing:6px;text-align:center;outline:none;box-sizing:border-box;font-family:monospace">
-    <div id="totpError" style="color:#f87171;font-size:12px;min-height:18px;margin:8px 0 16px;text-align:center"></div>
-    <div style="display:flex;gap:10px">
-      <button onclick="hideTotpModal()" style="flex:1;padding:11px;background:#2a2a3e;border:1px solid #445;border-radius:8px;color:#aaa;cursor:pointer;font-size:14px;font-family:inherit">&#21462;&#28040;</button>
-      <button onclick="submitTotp()" style="flex:2;padding:11px;background:#16a34a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;font-weight:700;font-family:inherit">&#9989; &#30830;&#35748;&#25209;&#20934;</button>
-    </div>
-  </div>
-</div>
-
 <script>
   const csrfToken = __CODEXSTATE_CSRF__;
 
@@ -504,8 +488,7 @@
 
   var prevState = null;
   var currentApproval = null;
-  var lockedApproval  = null;   // 点击批准时锁住，弹窗期间不被轮询覆盖
-  var pendingDecision = null;
+  var lockedApproval  = null;   // 点击批准/拒绝时锁住，发送期间不被轮询覆盖
 
   function fmt(n) {
     if (n === null || n === undefined || n === '') return '—';
@@ -626,16 +609,11 @@
 
   function handleDecision(decision) {
     if (!currentApproval) return;
-    pendingDecision = decision;
-    lockedApproval  = currentApproval;   // 锁住当前 approval，防止轮询覆盖
-    if (decision === 'accept') {
-      showTotpModal();
-    } else {
-      sendDecision('decline', '');
-    }
+    lockedApproval = currentApproval;   // 锁住当前 approval，防止轮询覆盖
+    sendDecision(decision);
   }
 
-  function sendDecision(decision, totp) {
+  function sendDecision(decision) {
     var approval = lockedApproval || currentApproval;
     if (!approval) {
       document.getElementById('approvalResult').textContent = '发送失败：审批请求已过期，请刷新页面重试';
@@ -645,48 +623,21 @@
     document.getElementById('btnApprove').disabled = true;
     document.getElementById('btnDeny').disabled    = true;
     document.getElementById('approvalResult').textContent = '正在发送...';
-    var body = new URLSearchParams({ op: 'decision', csrf: csrfToken, totp: totp || '', approvalId: approval.id, decision: decision });
+    var body = new URLSearchParams({ op: 'decision', csrf: csrfToken, approvalId: approval.id, decision: decision });
     fetch('api.php', { method: 'POST', body: body, cache: 'no-store' })
       .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
       .then(function(res) {
         if (!res.ok || !res.data.ok) throw new Error(res.data.error || 'request_failed');
-        hideTotpModal();
         document.getElementById('approvalResult').textContent = '决定已发送，正在等待 Codex 响应';
         lockedApproval = null;
       })
       .catch(function(e) {
-        hideTotpModal();
         document.getElementById('approvalResult').textContent = '发送失败：' + e.message;
         document.getElementById('btnApprove').disabled = false;
         document.getElementById('btnDeny').disabled    = false;
         lockedApproval = null;
       });
   }
-
-  function showTotpModal() {
-    document.getElementById('totpModal').style.display = 'flex';
-    var inp = document.getElementById('totpInput');
-    inp.value = '';
-    inp.focus();
-    document.getElementById('totpError').textContent = '';
-  }
-  function hideTotpModal() {
-    document.getElementById('totpModal').style.display = 'none';
-    document.getElementById('totpInput').value = '';
-    document.getElementById('totpError').textContent = '';
-    pendingDecision = null;
-    // 注意：lockedApproval 由 sendDecision 的成功/失败分支清除，取消时也清除
-    lockedApproval = null;
-  }
-  function submitTotp() {
-    var code = document.getElementById('totpInput').value.trim();
-    if (!/^\d{6}$/.test(code)) { document.getElementById('totpError').textContent = '请输入6位验证码'; return; }
-    sendDecision(pendingDecision || 'accept', code);
-  }
-
-  document.getElementById('totpModal').addEventListener('click', function(e) {
-    if (e.target === this) hideTotpModal();
-  });
 
   // If status polling keeps failing (this app's own trust cookie was never
   // set — e.g. access came in via the cross-app shared cookie only), bounce

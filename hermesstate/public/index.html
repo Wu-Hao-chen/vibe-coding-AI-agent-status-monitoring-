@@ -88,14 +88,6 @@
       border: none; border-radius: 6px; font: 700 15px/1 system-ui,sans-serif; cursor: pointer; transition: opacity .15s;
     }
     .btn-deny:hover { opacity: .88; }
-    .totp-field { margin-top: 14px; }
-    .totp-field label { display: block; font-size: 13px; font-weight: 700; color: #172033; margin-bottom: 6px; }
-    .totp-field input {
-      width: 100%; min-height: 46px; border: 1px solid #b9c5d8; border-radius: 6px;
-      padding: 10px 14px; font-size: 22px; letter-spacing: 6px; text-align: center;
-      font-family: ui-monospace, monospace; outline: none;
-    }
-    .totp-field input:focus { border-color: #16a34a; }
 
     /* ── Activity log ── */
     .activity-card {
@@ -150,10 +142,6 @@
       <div class="perm-tool">
         <strong id="perm-tool-name"></strong>
         <pre id="perm-tool-input"></pre>
-      </div>
-      <div class="totp-field" id="totp-wrap" style="display:none;">
-        <label>批准需输入 TOTP 验证码</label>
-        <input type="text" id="totp-input" placeholder="000000" maxlength="6" inputmode="numeric">
       </div>
       <div class="perm-actions">
         <button class="btn-approve" onclick="decide('approve')">✅ 批准</button>
@@ -238,8 +226,6 @@ function applyState(state) {
   } else {
     panel.classList.remove('show');
     currentPermission = null;
-    document.getElementById('totp-wrap').style.display = 'none';
-    document.getElementById('totp-input').value = '';
   }
 
   renderActivity(state.activityLog || []);
@@ -262,29 +248,16 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// No auth check on /decision/:id as shipped — see server.js's security
+// note. Add your own confirmation step here if you need one.
 async function decide(action) {
   if (!currentPermission) return;
-  if (action === 'approve') {
-    const wrap = document.getElementById('totp-wrap');
-    if (wrap.style.display === 'none') { wrap.style.display = 'block'; document.getElementById('totp-input').focus(); return; }
-    const totp = document.getElementById('totp-input').value.trim();
-    if (!totp) { alert('请输入 TOTP 验证码'); return; }
-    try {
-      const r = await fetch(`decision/${currentPermission.id}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve', totp })
-      });
-      const data = await r.json();
-      if (!r.ok) { alert(data.error === 'totp_invalid' ? 'TOTP 验证码错误，请重试' : (data.error || '操作失败')); }
-    } catch (e) { alert('网络错误'); }
-  } else {
-    try {
-      await fetch(`decision/${currentPermission.id}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deny' })
-      });
-    } catch (_) {}
-  }
+  try {
+    await fetch(`decision/${currentPermission.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    });
+  } catch (_) {}
 }
 
 connect();

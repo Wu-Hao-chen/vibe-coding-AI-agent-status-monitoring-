@@ -1,6 +1,10 @@
 # HermesState
 
-跟 [ClaudeState](../claudestate) 同构的监控面板，用于监控一个叫 "Hermes" 的桌面 AI Agent（进程名 `Hermes.exe`）的在线状态和活动情况。红/黄/绿灯 + Token 用量 + 远程审批权限请求（TOTP 二次确认）。
+跟 [ClaudeState](../claudestate) 同构的监控面板，用于监控一个叫 "Hermes" 的桌面 AI Agent（进程名 `Hermes.exe`）的在线状态和活动情况。红/黄/绿灯 + Token 用量 + 远程审批权限请求。
+
+## ⚠️ 关于验证/权限控制
+
+跟 ClaudeState 一样，**这套代码没有内置的身份验证或权限控制**——原始部署里的手机验证、角色检查等都已拿掉，只剩"检查你自己的 `auth_current_user()` 有没有返回登录用户"这一层，`server.js` 的 `/events`、`/decision/:id`、`/api/state` 完全没有认证。部署前请自己评估风险、加上你需要的验证方式。详见 [../claudestate/README.md](../claudestate/README.md) 里的完整说明。
 
 ## 架构
 
@@ -15,8 +19,8 @@ Hermes.exe（桌面应用）
             │                            匹配到"对话轮次开始/结束"的日志行时：
             └─ POST /hook/turn-start / turn-end ─► 驱动黄/绿灯
 
-浏览器 ── GET /hermesstate/ ── PHP 网关：检查你自己的登录系统 → 设置一个签名 cookie → 直接返回仪表盘
-      └── SSE /hermesstate/events ── Node.js 用这个签名 cookie 验证请求，实时推送状态
+浏览器 ── GET /hermesstate/ ── PHP 网关：检查你自己的登录系统 → 直接返回仪表盘
+      └── SSE /hermesstate/events ── Node.js 实时推送状态（无认证）
 ```
 
 ## 目录结构
@@ -27,7 +31,7 @@ Hermes.exe（桌面应用）
 
 ### 1. 服务端（Node.js）+ 2. PHP 登录网关
 
-跟 ClaudeState 完全一样，参见 [../claudestate/README.md](../claudestate/README.md) 的对应章节，把 `claudestate` 换成 `hermesstate`、`CLS_*` 换成 `HMS_*` 即可。登录通过你自己的 SSO 后直接进仪表盘，没有额外的验证步骤。
+跟 ClaudeState 完全一样，参见 [../claudestate/README.md](../claudestate/README.md) 的对应章节，把 `claudestate` 换成 `hermesstate`、`CLS_*` 换成 `HMS_*` 即可。
 
 ### 3. 本地监控脚本
 
@@ -44,4 +48,4 @@ Hermes.exe（桌面应用）
 
 ## 已知的架构限制
 
-和 ClaudeState 一致：单一全局状态（不区分多进程/多实例）；黄灯 5 分钟无活动自动恢复绿灯，红灯不会被自动清除（交给它自己的等待/超时逻辑）。
+和 ClaudeState 一致：单一全局状态（不区分多进程/多实例）；黄灯 5 分钟无活动自动恢复绿灯，红灯不会被自动清除。
