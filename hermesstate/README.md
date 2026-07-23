@@ -1,10 +1,10 @@
 # HermesState
 
-跟 [ClaudeState](../claudestate) 同构的监控面板，用于监控一个叫 "Hermes" 的桌面 AI Agent（进程名 `Hermes.exe`）的在线状态和活动情况。红/黄/绿灯 + Token 用量 + 远程审批权限请求。
+跟 [ClaudeState](../claudestate) 同构的监控面板，用于监控一个叫 "Hermes" 的桌面 AI Agent（进程名 `Hermes.exe`）的在线状态和活动情况：红/黄/绿灯 + Token 用量 + 远程审批权限请求。
 
-## ⚠️ 关于验证/权限控制
+## 安全模型
 
-跟 ClaudeState 一样，**这套代码没有内置的身份验证或权限控制**——原始部署里的手机验证、角色检查等都已拿掉，只剩"检查你自己的 `auth_current_user()` 有没有返回登录用户"这一层，`server.js` 的 `/events`、`/decision/:id`、`/api/state` 完全没有认证。部署前请自己评估风险、加上你需要的验证方式。详见 [../claudestate/README.md](../claudestate/README.md) 里的完整说明。
+**本项目不包含内置的身份验证或权限控制。** 面板前面唯一的门槛是 `php/index.php` 对 `auth_current_user()` 返回值的检查，`server.js` 暴露的 `/events`、`/decision/:id`、`/api/state` 均不做身份校验。设计取舍与风险说明详见 [../claudestate/README.md](../claudestate/README.md) 的"安全模型"一节——两个项目完全一致。
 
 ## 架构
 
@@ -19,13 +19,45 @@ Hermes.exe（桌面应用）
             │                            匹配到"对话轮次开始/结束"的日志行时：
             └─ POST /hook/turn-start / turn-end ─► 驱动黄/绿灯
 
-浏览器 ── GET /hermesstate/ ── PHP 网关：检查你自己的登录系统 → 直接返回仪表盘
-      └── SSE /hermesstate/events ── Node.js 实时推送状态（无认证）
+浏览器 ── GET /hermesstate/ ── PHP 网关：检查登录状态 → 返回面板页面
+      └── SSE /hermesstate/events ── Node.js 实时推送状态
 ```
+
+与 ClaudeState 不同，HermesState 没有官方 hook 机制可用，因此状态采集依赖两个独立运行的本地脚本：一个轮询进程是否存活，另一个持续 tail 日志文件、用正则匹配特定的日志行来推断对话轮次的起止。这种"外部观察"式的集成天然比原生 hook 更脆弱，具体限制见下方"日志解析的已知限制"一节。
+
+### 状态对象
+
+```js
+{
+  status: 'green' | 'yellow' | 'red',
+  currentTool: string | null,
+  permission: { id, tool_name, tool_input, timestamp } | null,  // status 为 red 时非空
+  sessionId: string | null,
+  lastActivity: number,
+  activityLog: Array<{ type, message, detail, time }>,  // 最近 30 条活动
+  hermesOnline: boolean,   // 进程当前是否在跑，由 hermes-monitor.ps1 上报
+}
+```
+
+不做持久化——Node 服务重启后状态从空闲重新开始。
+
+### 接口一览
+
+| 方法 + 路径 | 用途 | 调用方 |
+|---|---|---|
+| `GET /events` | SSE 状态流 | 浏览器 |
+| `POST /hook/hermes-online` `/hermes-offline` | 上报进程是否存活 | `hermes-monitor.ps1` |
+| `POST /hook/turn-start` `/turn-end` | 驱动黄/绿灯 | `hermes-log-monitor.ps1` |
+| `POST /hook/pretool` `/posttool` `/stop` | 同 ClaudeState，用于扩展成原生 hook 集成时预留 | — |
+| `POST /hook/permission` | 驱动红灯，阻塞至有决定或超时 | 需自行接入的信号源，见下 |
+| `POST /decision/:id` | 批准或拒绝一个待处理的权限请求 | 浏览器 |
+| `GET /api/state` | 一次性获取当前完整状态 | 任意 |
+| `GET /internal/state` | 仅返回 `status` 字段，限制只有 `127.0.0.1` 可访问 | 同机部署的聚合面板等内部用途 |
+| `POST /admin/upload-html` | 远程覆盖 `public/index.html`，需 `UPLOAD_SECRET` | 部署脚本 |
 
 ## 目录结构
 
-同 [ClaudeState](../claudestate)：`server.js`（Node 后端）、`public/index.html`（仪表盘前端）、`php/`（登录网关）、`hooks/`（本地监控脚本）、`.env.example`。
+同 [ClaudeState](../claudestate)：`server.js`（Node 后端）、`public/index.html`（面板前端）、`php/`（登录网关）、`hooks/`（本地监控脚本）、`.env.example`。
 
 ## 部署步骤
 
@@ -35,17 +67,17 @@ Hermes.exe（桌面应用）
 
 ### 3. 本地监控脚本
 
-这部分和 ClaudeState 不同——Hermes 不是 Claude Code，没有官方 hook 机制，监控靠**轮询进程 + tail 日志文件**实现：
-
-1. 把 `hooks/hermes-monitor.ps1` 和 `hooks/hermes-log-monitor.ps1` 拷贝到你自己电脑上（比如 `%LOCALAPPDATA%\hermes\hooks\`）。
+1. 把 `hooks/hermes-monitor.ps1` 和 `hooks/hermes-log-monitor.ps1` 拷贝到运行 Hermes 的电脑上（比如 `%LOCALAPPDATA%\hermes\hooks\`）。
 2. 编辑两个脚本顶部的 `$SERVER` 变量，指向你自己部署的域名。
-3. `hermes-log-monitor.ps1` 里的 `$LOG_PATH` 和两个正则（匹配"对话轮次开始/结束"的日志行）是针对某个特定版本的 Hermes 写的——**如果你监控的是别的 Agent，或 Hermes 版本更新后日志格式变了，这两个正则大概率需要重新对着实际日志调整**，本仓库不保证在你的环境里开箱即用。
-4. 用 `hooks/hermes-monitor.vbs`（配合 Windows "启动"文件夹，`Win+R` → `shell:startup`）让它开机自动静默运行。**这个 `.vbs` 文件必须保存为无 BOM 的编码**——带 BOM 会导致 VBScript 报 `Invalid character` 直接失败，且失败得很安静，容易长期不被发现。
+3. 用 `hooks/hermes-monitor.vbs`（配合 Windows "启动"文件夹，`Win+R` → `shell:startup`）让 `hermes-monitor.ps1` 开机自动静默运行，它会在启动时一并拉起 `hermes-log-monitor.ps1`。**这个 `.vbs` 文件必须保存为无 BOM 的编码**——带 BOM 会导致 VBScript 报 `Invalid character` 直接失败，且失败得很安静，容易长期不被发现。
 
-### 红灯的已知限制
+### 日志解析的已知限制
 
-跟 ClaudeState 不同的是：Hermes 的"等待权限批准"（红灯）在实践中很难通过 tail 日志可靠检测——大多数日志只记录批准/拒绝的**最终结果**，而不是"弹窗刚出现、正在等你确认"这一刻。如果你的 Agent 有更直接的信号（比如一个专门的窗口标题、一个独立的状态文件），红灯检测会更准确，需要你自己在 `hermes-log-monitor.ps1` 里加对应逻辑。
+`hermes-log-monitor.ps1` 里的 `$LOG_PATH` 和两条正则（匹配"对话轮次开始/结束"的日志行）是针对某一个特定版本的 Hermes 写的。这带来两个实际限制：
 
-## 已知的架构限制
+- **换一个 Agent，或 Hermes 版本更新后日志格式变化**：正则大概率需要对着实际日志重新调整，本仓库不保证在你的环境里开箱即用。
+- **红灯（等待权限批准）在实践中很难通过 tail 日志可靠检测**：大多数日志只记录批准/拒绝的最终结果，而不是"弹窗刚出现、正在等待确认"这一刻。如果目标 Agent 有更直接的信号（例如一个专门的窗口标题，或一个独立的状态文件），可以在 `hermes-log-monitor.ps1` 里针对该信号自行实现红灯检测。
 
-和 ClaudeState 一致：单一全局状态（不区分多进程/多实例）；黄灯 5 分钟无活动自动恢复绿灯，红灯不会被自动清除。
+## 已知限制
+
+和 ClaudeState 一致：单一全局状态（不区分多进程/多实例）；黄灯 5 分钟无活动自动恢复绿灯，红灯不会被自动清除（生命周期交由等待批准这一动作本身的超时机制决定）。
